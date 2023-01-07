@@ -1,83 +1,48 @@
-// extrinsics
-// calls
-// events
-// balances
 import * as dotenv from 'dotenv';
 import tap from 'tap';
-import { GraphQLClient, gql } from 'graphql-request';
+import { GraphQLClient } from 'graphql-request';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { SignedBlock } from '@polkadot/types/interfaces/runtime';
-
-// TODO: move to utils
-function snakeToCamel(str: string) {
-  return str.toLowerCase().replace(/([-_][a-z])/g, group =>
-    group
-      .toUpperCase()
-      .replace('-', '')
-      .replace('_', '')
-  );
-}
+import { snakeToCamel } from './utils';
+import { queryBlocks, queryEvents, queryExtrinsics, querySquidHeight } from './queries';
 
 dotenv.config();
 
-const wsProvider = new WsProvider(process.env.CHAIN_RPC_ENDPOINT);
+const wsProvider = new WsProvider(process.env.CHAIN_RPC_ENDPOINT as string);
+const squidClient = new GraphQLClient(process.env.SQUID_GRAPHQL_ENDPOINT as string);
 
-const blockNumbers = [
-  1500,
-  15_539,
-  80_453,
-  543_435,
-  // 1_281_609,
-];
-
-const queryBlocks = gql`
-  query Blocks($height:BigInt) {
-    blocks(limit: 1, where: {height_eq: $height}) {
-      hash
-      height
-      id
-      parentHash
-      spacePledged
-      specId
-      stateRoot
-      logs(limit: 100) {
-        kind
-      }
-    }
-  }
-`;
-
-const queryExtrinsics = gql`
-    query MyQuery($height:BigInt) {
-      extrinsics(where: {block: {height_eq: $height}}, limit: 1000) {
-        hash
-        name
-      }
-    }
-`;
-
+// block numbers to check are generated randomly below
+const blockNumbers: number[] = [];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let blocksFromSquid: any[];
 let blocksFromRpc: SignedBlock[];
-let api: ApiPromise;
-// TODO: move to an env var
-const client = new GraphQLClient('https://squid.gemini-2a.subspace.network/graphql');
+let rpcApi: ApiPromise;
+
 
 tap.before(async () => {
-  api = await ApiPromise.create({ provider: wsProvider });
+  rpcApi = await ApiPromise.create({ provider: wsProvider });
 
-  blocksFromSquid = await Promise.all(blockNumbers.map(async height => {
-    const response = await client.request(queryBlocks, { height });
-    return response.blocks[0];
-  }));
+  // get current squid status height (latest block height)
+  const { height: squidHeight } = (await squidClient.request(querySquidHeight)).squidStatus;
 
+  // generate 5 random block numbers within range of squid height
+  for (let i = 0; i < 5; i++) {
+    blockNumbers.push(Math.floor(Math.random() * squidHeight));
+  }
+
+  // fetch blocks from rpc
   blocksFromRpc = await Promise.all(blockNumbers.map(async height => {
-    const hash = await api.rpc.chain.getBlockHash(height);
-    const block = await api.rpc.chain.getBlock(hash);
+    const hash = await rpcApi.rpc.chain.getBlockHash(height);
+    const block = await rpcApi.rpc.chain.getBlock(hash);
     return block;
   }));
-});
 
+  // fetch blocks from squid
+  blocksFromSquid = await Promise.all(blockNumbers.map(async height => {
+    const response = await squidClient.request(queryBlocks, { height });
+    return response.blocks[0];
+  }));
+});
 
 tap.test('compare block headers', async (t) => {
   blocksFromSquid.forEach((block, index) => {
@@ -98,7 +63,7 @@ tap.test('compare block headers', async (t) => {
 
 tap.test('compare block extrinsics', async (t) => {
   await Promise.all(blockNumbers.map(async (height, index) => {
-    const { extrinsics: squidExtrinsics } = await client.request(queryExtrinsics, { height });
+    const { extrinsics: squidExtrinsics } = await squidClient.request(queryExtrinsics, { height });
     const { extrinsics: rpcExtrinsics } = (blocksFromRpc[index]).block;
 
     squidExtrinsics.forEach((extrinsic: any, index: number) => {
@@ -117,6 +82,24 @@ tap.test('compare block extrinsics', async (t) => {
         `extrinsic #${extrinsic.hash} name ok`,
       );
     });
+  }));
+
+  t.end();
+});
+
+tap.test('compare block events', async (t) => {
+  await Promise.all(blockNumbers.map(async (height) => {
+    const { events: squidEvents } = await squidClient.request(queryEvents, { height });
+    const blockHash = await rpcApi.rpc.chain.getBlockHash(height);
+    const blockApi = await rpcApi.at(blockHash);
+    const rpcEvents = await blockApi.query.system.events();
+
+    t.equal(squidEvents.length, (rpcEvents as any).length, `block #${height} events count ok`);
+
+    // compare rpcEvents and squidEvents names
+    const rpcEventNames = (rpcEvents as any).map(({ event }: any) => `${event.section.toString()}.${event.method.toString()}`.toLowerCase()).sort();
+    const squidEventNames = squidEvents.map((event: any) => event.name.toLowerCase()).sort();
+    t.same(rpcEventNames, squidEventNames, `block #${height} events names ok`);
   }));
 
   t.end();
