@@ -20,7 +20,6 @@ let blocksFromSquid: any[];
 let blocksFromRpc: SignedBlock[];
 let rpcApi: ApiPromise;
 
-
 tap.before(async () => {
   rpcApi = await ApiPromise.create({ provider: wsProvider });
 
@@ -46,6 +45,10 @@ tap.before(async () => {
   }));
 });
 
+tap.teardown(async () => {
+  await rpcApi.disconnect();
+});
+
 tap.test('compare block headers', async (t) => {
   blocksFromSquid.forEach((block, index) => {
     const { header } = (blocksFromRpc[index]).block;
@@ -59,8 +62,6 @@ tap.test('compare block headers', async (t) => {
     // TODO: find a way to query 'Seal' log items if it's critical for us
     t.equal(block.logs.length + 1, header.digest.logs.length, `block #${block.height} log items count ok`);
   });
-
-  t.end();
 });
 
 tap.test('compare block extrinsics', async (t) => {
@@ -85,8 +86,6 @@ tap.test('compare block extrinsics', async (t) => {
       );
     });
   }));
-
-  t.end();
 });
 
 tap.test('compare block events', async (t) => {
@@ -103,6 +102,4 @@ tap.test('compare block events', async (t) => {
     const squidEventNames = squidEvents.map((event: { name: string }) => event.name.toLowerCase()).sort();
     t.same(rpcEventNames, squidEventNames, `block #${height} events names ok`);
   }));
-
-  t.end();
 });
