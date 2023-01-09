@@ -3,6 +3,8 @@ import tap from 'tap';
 import { GraphQLClient } from 'graphql-request';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { SignedBlock } from '@polkadot/types/interfaces/runtime';
+import type { EventRecord } from "@polkadot/types/interfaces/system";
+
 import { snakeToCamel } from './utils';
 import { queryBlocks, queryEvents, queryExtrinsics, querySquidHeight } from './queries';
 
@@ -66,7 +68,7 @@ tap.test('compare block extrinsics', async (t) => {
     const { extrinsics: squidExtrinsics } = await squidClient.request(queryExtrinsics, { height });
     const { extrinsics: rpcExtrinsics } = (blocksFromRpc[index]).block;
 
-    squidExtrinsics.forEach((extrinsic: any, index: number) => {
+    squidExtrinsics.forEach((extrinsic: { hash: string, name: string }, index: number) => {
       const refExtrinsic = rpcExtrinsics[index];
 
       t.equal(
@@ -92,13 +94,13 @@ tap.test('compare block events', async (t) => {
     const { events: squidEvents } = await squidClient.request(queryEvents, { height });
     const blockHash = await rpcApi.rpc.chain.getBlockHash(height);
     const blockApi = await rpcApi.at(blockHash);
-    const rpcEvents = await blockApi.query.system.events();
+    const rpcEvents = (await blockApi.query.system.events()) as unknown as EventRecord[];
 
-    t.equal(squidEvents.length, (rpcEvents as any).length, `block #${height} events count ok`);
+    t.equal(squidEvents.length, rpcEvents.length, `block #${height} events count ok`);
 
     // compare rpcEvents and squidEvents names
-    const rpcEventNames = (rpcEvents as any).map(({ event }: any) => `${event.section.toString()}.${event.method.toString()}`.toLowerCase()).sort();
-    const squidEventNames = squidEvents.map((event: any) => event.name.toLowerCase()).sort();
+    const rpcEventNames = rpcEvents.map(({ event }) => `${event.section.toString()}.${event.method.toString()}`.toLowerCase()).sort();
+    const squidEventNames = squidEvents.map((event: { name: string }) => event.name.toLowerCase()).sort();
     t.same(rpcEventNames, squidEventNames, `block #${height} events names ok`);
   }));
 
