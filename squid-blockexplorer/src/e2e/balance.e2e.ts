@@ -6,11 +6,13 @@ import { ApiPromise, WsProvider, Keyring } from '@polkadot/api';
 import { queryBalance, querySquidHeight } from './queries';
 import { submitTxAndWaitForBlockHash, wait } from './utils';
 
-dotenv.config();
+dotenv.config({ path: '.env.e2e' });
 
 const keyring = new Keyring({ type: 'sr25519', ss58Format: 2254 });
 const wsProvider = new WsProvider(process.env.CHAIN_RPC_ENDPOINT as string);
 const squidClient = new GraphQLClient(process.env.SQUID_GRAPHQL_ENDPOINT as string);
+
+console.log(`Squid GraphQL endpoint: ${process.env.SQUID_GRAPHQL_ENDPOINT}`);
 
 let rpcApi: ApiPromise;
 
@@ -48,9 +50,9 @@ tap.test('account balances should update', async (t) => {
   for (; ;) {
     // get current squid status height (latest block height)
     const { height: squidHeight } = (await squidClient.request(querySquidHeight)).squidStatus;
-    
+
     console.log(`Waiting for the squid to catch up... ${squidHeight}/${number.toNumber()}`);
-    
+
     if (squidHeight >= number.toNumber()) break;
 
     await wait(1000);
