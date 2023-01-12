@@ -11,17 +11,27 @@ export function snakeToCamel(str: string) {
   );
 }
 
-export function submitTxAndWaitForBlockHash(api: ApiPromise, from: KeyringPair, to: string, amount: number) {
+export function submitTxAndWaitForBlockHash(api: ApiPromise, from: KeyringPair, to: string, amount: bigint) {
+  let unsubscribe: () => void;
   return new Promise<Hash>((resolve) => {
-    api.tx.balances
-      .transfer(to, amount)
+    api.tx
+      // use sudo.sudoAs for now as a workaround, otherwise cannot do transfers (using Gemini-3b)
+      // TODO: remove when runtime is updated
+      .sudo.sudoAs(
+        from.address,
+        api.tx.balances.transfer(to, amount),
+      )
       .signAndSend(from, (result) => {
-        console.log(`Current status is ${result.status}`);
+        console.log(`Balance transfer: Current status is ${result.status}`);
 
         if (result.status.isInBlock) {
-          console.log(`Transaction included at blockHash ${result.status.asInBlock}`);
+          console.log(`Balance ransfer: Transaction included at blockHash ${result.status.asInBlock}`);
           resolve(result.status.asInBlock);
+          unsubscribe();
         }
+      })
+      .then((unsub) => {
+        unsubscribe = unsub;
       });
   });
 }
