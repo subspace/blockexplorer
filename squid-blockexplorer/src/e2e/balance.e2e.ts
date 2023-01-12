@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import * as dotenv from 'dotenv';
 import tap from 'tap';
 import { GraphQLClient } from 'graphql-request';
@@ -27,13 +28,13 @@ interface AccountBalance {
 
 tap.before(async () => {
   rpcApi = await ApiPromise.create({ provider: wsProvider });
-  
+
   // assign account keypairs
   ALICE = keyring.addFromUri('//Alice');
   BOB = keyring.addFromUri('//Bob');
 
   // send inial transfer from Alice to Bob to trigger squid indexing of ALICE and BOB accounts
-  const blockHash = await submitTxAndWaitForBlockHash(rpcApi, ALICE!, BOB!.address, AMOUNT);
+  const blockHash = await submitTxAndWaitForBlockHash(rpcApi, ALICE, BOB.address, AMOUNT);
   const txBlockNumber = (await rpcApi.rpc.chain.getHeader(blockHash)).number.toNumber();
 
   // wait for the block to be processed by the squid
@@ -50,21 +51,21 @@ tap.teardown(async () => {
   await rpcApi.disconnect();
 });
 
-tap.test('account balances should update', async (t) => {
+tap.test('account balances should update after transfer', async (t) => {
   // get initial account balances from the squid
   const { free: initAliceSquidBalance }: AccountBalance = (await squidClient.request(queryBalance, { id: ALICE!.address })).accountById;
   const { free: initBobSquidBalance }: AccountBalance = (await squidClient.request(queryBalance, { id: BOB!.address })).accountById;
 
   // send a transfer from Alice to Bob
   const blockHash = await submitTxAndWaitForBlockHash(rpcApi, ALICE!, BOB!.address, AMOUNT);
-  const { number } = await rpcApi.rpc.chain.getHeader(blockHash);
+  const txBlockNumber = (await rpcApi.rpc.chain.getHeader(blockHash)).number.toNumber();
 
   // wait for the block to be processed by the squid
   for (; ;) {
     // get current squid status height (latest block height)
     const { height: squidHeight } = (await squidClient.request(querySquidHeight)).squidStatus;
-    console.log(`Waiting for the squid to catch up... ${squidHeight}/${number.toNumber()}`);
-    if (squidHeight >= number.toNumber()) break;
+    console.log(`Waiting for the squid to catch up... ${squidHeight}/${txBlockNumber}`);
+    if (squidHeight >= txBlockNumber) break;
     await wait(1000);
   }
 
